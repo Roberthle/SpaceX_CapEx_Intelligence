@@ -39,6 +39,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Stripe & DB Setup ────────────────────────────────────────────────────────
+# Load local .env if it exists
+if os.path.exists(".env"):
+    with open(".env") as f:
+        for line in f:
+            if line.strip() and not line.strip().startswith("#") and "=" in line:
+                key, val = line.strip().split("=", 1)
+                os.environ[key.strip()] = val.strip()
+
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 def init_db():
