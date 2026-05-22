@@ -16,12 +16,13 @@ All subsequent runs are instant via the 24-hour disk cache.
 import json
 import logging
 import os
+import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
-
 from typing import Optional
 
+import stripe
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
@@ -37,11 +38,89 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ── Stripe & DB Setup ────────────────────────────────────────────────────────
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+
+def init_db():
+    conn = sqlite3.connect("purchases.db")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS lead_purchases (
+            lead_id TEXT PRIMARY KEY,
+            tier TEXT,
+            price_cents INTEGER,
+            stripe_session_id TEXT,
+            status TEXT,
+            buyer_email TEXT,
+            stripe_payment_intent TEXT,
+            unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def _is_purchased(lead_id) -> bool:
+    """Check if a lead has been unlocked in purchases.db"""
+    try:
+        conn = sqlite3.connect("purchases.db")
+        row = conn.execute(
+            "SELECT lead_id FROM lead_purchases WHERE lead_id=? AND status='completed'",
+            [str(lead_id)]
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception as e:
+        logger.warning(f"Error checking purchase status for {lead_id}: {e}")
+        return False
+
+# ── Company name privacy gate ────────────────────────────────────────────────
+def _mask_name(name):
+    """Obfuscate company name — show first letter + bullets per word."""
+    if not name:
+        return 'Confidential Business'
+    SUFFIXES = {'LLC','INC','CORP','LTD','LP','DBA','L.L.C.','INC.','CORP.','L.P.','CO.','CO'}
+    parts = name.split()
+    out = []
+    for p in parts:
+        if p.upper().rstrip('.') in SUFFIXES or len(p) <= 2:
+            out.append(p)
+        else:
+            out.append(p[0] + '\u2022' * min(len(p) - 1, 8))
+    return ' '.join(out)
+
+def _apply_mask(lead: dict) -> dict:
+    """Mask private details of a lead unless purchased."""
+    lead_id = lead.get("id")
+    if _is_purchased(lead_id):
+        lead_copy = lead.copy()
+        lead_copy["locked"] = False
+        return lead_copy
+        
+    masked = lead.copy()
+    masked["company_name"] = _mask_name(lead.get("company_name", ""))
+    masked["address"] = "••••••••••••••••"
+    masked["phone"] = None
+    masked["email"] = None
+    masked["contact_name"] = None
+    masked["company_website"] = None
+    masked["website"] = None
+    masked["locked"] = True
+    return masked
+
+TIERS = {
+    "priority": {"price": 9900, "label": "Priority", "desc": "Exclusive high-probability heavy machinery lease target."},
+    "hot": {"price": 7900, "label": "Hot", "desc": "Accelerated CapEx growth signal with strong proximity."},
+    "monitor": {"price": 4900, "label": "Monitor", "desc": "Mid-tier potential for continuous monitoring and future pipeline mapping."},
+    "low": {"price": 2900, "label": "Low", "desc": "Low-probability monitoring lead with baseline activity."},
+}
+
 # ── Flask App ─────────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder=".", static_url_path="")
 CORS(app)
 
 # ── Cache ─────────────────────────────────────────────────────────────────────
+
 _CACHE_FILE = os.path.join(os.path.dirname(__file__), "cache", "scored_leads.json")
 _CACHE_TTL_HOURS = 24
 
@@ -281,13 +360,15 @@ def api_leads():
     if text_search:
         leads = [l for l in leads if text_search in (l.get("company_name") or "").upper()]
 
+    masked_leads = [_apply_mask(l) for l in leads]
     return jsonify(
         {
             **{k: v for k, v in result.items() if k != "leads"},
-            "filtered_count": len(leads),
-            "leads": leads,
+            "filtered_count": len(masked_leads),
+            "leads": masked_leads,
         }
     )
+
 
 
 @app.route("/api/stats")
@@ -328,10 +409,256 @@ def api_stats():
     )
 
 
-# ── Startup ───────────────────────────────────────────────────────────────────
+# ── Stripe & Unlock Endpoints ──────────────────────────────────────────────────
+
+@app.route("/api/leads/<lead_id>/pricing")
+def api_lead_pricing(lead_id):
+    """Returns pricing metadata for a lead."""
+    with _pipeline_lock:
+        result = _pipeline_state.get("result")
+    if result is None:
+        result = _load_cache()
+
+    if not result:
+        return jsonify({"error": "Data not ready"}), 503
+
+    lead = None
+    for l in result.get("leads", []):
+        if l.get("id") == lead_id:
+            lead = l
+            break
+
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+
+    tier_key = lead.get("score_tier", "low")
+    tier_info = TIERS.get(tier_key, TIERS["low"])
+
+    is_demo = not bool(os.environ.get("STRIPE_SECRET_KEY"))
+
+    return jsonify({
+        "lead_id": lead_id,
+        "tier": tier_key,
+        "price": tier_info["price"] / 100.0,
+        "price_cents": tier_info["price"],
+        "label": tier_info["label"],
+        "description": tier_info["desc"],
+        "purchased": _is_purchased(lead_id),
+        "demo_mode": is_demo
+    })
+
+
+@app.route("/api/leads/<lead_id>/checkout", methods=["POST"])
+def api_lead_checkout(lead_id):
+    """Creates a Stripe checkout session, or triggers Demo Mode unlock if no Stripe key is configured."""
+    with _pipeline_lock:
+        result = _pipeline_state.get("result")
+    if result is None:
+        result = _load_cache()
+
+    if not result:
+        return jsonify({"error": "Data not ready"}), 503
+
+    lead = None
+    for l in result.get("leads", []):
+        if l.get("id") == lead_id:
+            lead = l
+            break
+
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+
+    if _is_purchased(lead_id):
+        return jsonify({"error": "Lead already unlocked", "already_unlocked": True}), 400
+
+    tier_key = lead.get("score_tier", "low")
+    tier_info = TIERS.get(tier_key, TIERS["low"])
+
+    # If STRIPE_SECRET_KEY is absent from environment variables, we do Demo Mode!
+    is_demo = not bool(os.environ.get("STRIPE_SECRET_KEY"))
+
+    if is_demo:
+        # In Demo Mode, instantly mark as completed in SQLite
+        conn = sqlite3.connect("purchases.db")
+        conn.execute(
+            "INSERT OR REPLACE INTO lead_purchases (lead_id, tier, price_cents, status) VALUES (?, ?, ?, 'completed')",
+            [lead_id, tier_key, tier_info["price"]]
+        )
+        conn.commit()
+        conn.close()
+        logger.info(f"Demo unlocked lead {lead_id} successfully")
+        return jsonify({
+            "demo_unlock": True,
+            "lead_id": lead_id,
+            "message": "Demo Mode: Lead unlocked successfully!"
+        })
+
+    # Otherwise, create a real Stripe Checkout Session
+    host = request.host_url.rstrip("/")
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "unit_amount": tier_info["price"],
+                    "product_data": {
+                        "name": f"SpaceX CapEx — {tier_info['label']} Lead",
+                        "description": f"Lead ID: {lead_id} | Propensity Score: {lead.get('propensity_score', 0):.1f}",
+                    },
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=f"{host}/purchase-success?session_id={{CHECKOUT_SESSION_ID}}&lead_id={lead_id}",
+            cancel_url=f"{host}/#data-section",
+            metadata={
+                "lead_id": lead_id,
+                "tier": tier_key,
+            }
+        )
+
+        # Record pending purchase
+        conn = sqlite3.connect("purchases.db")
+        conn.execute(
+            "INSERT OR REPLACE INTO lead_purchases (lead_id, tier, price_cents, stripe_session_id, status) VALUES (?, ?, ?, ?, 'pending')",
+            [lead_id, tier_key, tier_info["price"], session.id]
+        )
+        conn.commit()
+        conn.close()
+
+        return jsonify({"checkout_url": session.url, "session_id": session.id})
+
+    except Exception as e:
+        logger.error(f"Stripe session creation error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/leads/<lead_id>/unlock")
+def api_unlock_lead(lead_id):
+    """Returns the unmasked lead details if purchased."""
+    if not _is_purchased(lead_id):
+        return jsonify({"error": "Purchase required", "locked": True}), 402
+
+    with _pipeline_lock:
+        result = _pipeline_state.get("result")
+    if result is None:
+        result = _load_cache()
+
+    if not result:
+        return jsonify({"error": "Data not ready"}), 503
+
+    lead = None
+    for l in result.get("leads", []):
+        if l.get("id") == lead_id:
+            lead = l
+            break
+
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+
+    lead_copy = lead.copy()
+    lead_copy["locked"] = False
+    return jsonify(lead_copy)
+
+
+@app.route("/api/purchase/verify")
+def verify_purchase():
+    """Verify a completed Stripe purchase and unlock the lead."""
+    session_id = request.args.get("session_id", "")
+    lead_id = request.args.get("lead_id", "")
+    if not session_id or not lead_id:
+        return jsonify({"error": "Missing parameters"}), 400
+
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        if session.payment_status == "paid":
+            conn = sqlite3.connect("purchases.db")
+            conn.execute(
+                "UPDATE lead_purchases SET status = 'completed', buyer_email = ?, stripe_payment_intent = ? WHERE stripe_session_id = ?",
+                [session.customer_details.email if session.customer_details else "", session.payment_intent, session_id]
+            )
+            conn.commit()
+            conn.close()
+            return jsonify({"status": "completed", "lead_id": lead_id})
+        else:
+            return jsonify({"status": session.payment_status})
+    except Exception as e:
+        logger.error(f"Purchase verification error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/purchase-success")
+def purchase_success():
+    return send_from_directory(".", "index.html")
+
+
+@app.route("/api/stripe/webhook", methods=["POST"])
+def stripe_webhook():
+    """Handle Stripe Webhook events."""
+    endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
+    payload = request.data
+    sig_header = request.headers.get("Stripe-Signature")
+
+    try:
+        if endpoint_secret and sig_header:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, endpoint_secret
+            )
+        else:
+            # Fallback for local testing without webhook secret verification
+            event = json.loads(payload)
+    except ValueError as e:
+        return jsonify({"error": "Invalid payload"}), 400
+    except stripe.error.SignatureVerificationError as e:
+        return jsonify({"error": "Invalid signature"}), 400
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        session_id = session.get("id")
+        payment_intent = session.get("payment_intent")
+        customer_details = session.get("customer_details")
+        customer_email = customer_details.get("email", "") if customer_details else ""
+        
+        lead_id = session.get("metadata", {}).get("lead_id")
+        
+        conn = sqlite3.connect("purchases.db")
+        try:
+            if lead_id:
+                # Update existing pending purchase or insert if not present
+                conn.execute(
+                    "UPDATE lead_purchases SET status = 'completed', buyer_email = ?, stripe_payment_intent = ? WHERE stripe_session_id = ? OR (lead_id = ? AND status = 'pending')",
+                    [customer_email, payment_intent, session_id, lead_id]
+                )
+                # Check if row was updated, if not insert it
+                cursor = conn.cursor()
+                cursor.execute("SELECT changes()")
+                changes = cursor.fetchone()[0]
+                if changes == 0:
+                    tier = session.get("metadata", {}).get("tier", "unknown")
+                    price = session.get("amount_total", 0)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO lead_purchases (lead_id, tier, price_cents, stripe_session_id, stripe_payment_intent, buyer_email, status) VALUES (?, ?, ?, ?, ?, ?, 'completed')",
+                        [lead_id, tier, price, session_id, payment_intent, customer_email]
+                    )
+            else:
+                conn.execute(
+                    "UPDATE lead_purchases SET status = 'completed', buyer_email = ?, stripe_payment_intent = ? WHERE stripe_session_id = ?",
+                    [customer_email, payment_intent, session_id]
+                )
+            conn.commit()
+            logger.info(f"Webhook successfully updated purchase status to completed for session {session_id}")
+        except Exception as e:
+            logger.error(f"Webhook DB error: {e}")
+        finally:
+            conn.close()
+
+    return jsonify({"status": "success"}), 200
+
 
 if __name__ == "__main__":
     # Auto-start pipeline on first launch (serves from cache if fresh)
     logger.info("⚡ SpaceX CapEx Intelligence starting...")
     _start_pipeline_thread(force_refresh=False)
-    app.run(host="0.0.0.0", port=5050, debug=False)
+    port = int(os.environ.get("PORT", 5052))
+    app.run(host="0.0.0.0", port=port, debug=False)

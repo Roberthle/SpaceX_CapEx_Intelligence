@@ -154,6 +154,39 @@ function buildPanelHTML(lead) {
     ? matches.map(m => `<span class="dp-badge">${esc(m)}</span>`).join('')
     : '<span class="dp-empty-note">No SpaceX entity matches detected</span>';
 
+  const priceObj = TIER_PRICES[tier] || TIER_PRICES.low;
+  const priceStr = `$${priceObj.price.toFixed(2)}`;
+
+  let contactCardHTML = '';
+  if (lead.locked) {
+    contactCardHTML = `
+    <!-- GLASSMORPHIC PAYWALL CARD -->
+    <div class="sx-paywall-card">
+      <div class="sx-paywall-icon">🔒</div>
+      <div class="sx-paywall-title">Lead Locked (Tier: ${tierLabel})</div>
+      <div class="sx-paywall-price">${priceStr}</div>
+      <div class="sx-paywall-desc">Unlock full company name, location, and verified contact details instantly. Ready for immediate outreach and CRM import.</div>
+      <button class="sx-paywall-btn" onclick="unlockLead('${esc(lead.id)}')">Unlock Lead</button>
+    </div>`;
+  } else {
+    contactCardHTML = `
+    <!-- COMPANY & CONTACT -->
+    <div class="dp-card">
+      <div class="dp-card-header">🏢 Company & Contact</div>
+      ${lead.address || lead.phone || lead.email || lead.company_website ? `
+      <table class="dp-table">
+        ${lead.address ? `<tr><td>Address</td><td>${esc(lead.address)}</td></tr>` : ''}
+        ${lead.phone   ? `<tr><td>Phone</td><td><a href="tel:${esc(lead.phone)}">${esc(lead.phone)}</a></td></tr>` : ''}
+        ${lead.email   ? `<tr><td>Email</td><td><a href="mailto:${esc(lead.email)}">${esc(lead.email)}</a></td></tr>` : ''}
+        ${lead.company_website ? `<tr><td>Website</td><td><a href="${esc(lead.company_website)}" target="_blank" rel="noopener">${esc(lead.company_website)}</a></td></tr>` : ''}
+      </table>` : '<div class="dp-empty-note">Contact data pending — FOIA enrichment in queue for TX/TN filings</div>'}
+    </div>`;
+  }
+
+  const primaryActionHTML = lead.locked
+    ? `<button class="dp-action-primary" onclick="unlockLead('${esc(lead.id)}')">🔓 Unlock Lead — ${priceStr}</button>`
+    : `<button class="dp-action-primary" onclick="exportSingleLead('${esc(lead.id)}')">↓ Export This Lead</button>`;
+
   return `
   <div class="dp-accent-bar ${accentClass}"></div>
 
@@ -268,17 +301,7 @@ function buildPanelHTML(lead) {
       </table>
     </div>
 
-    <!-- COMPANY & CONTACT -->
-    <div class="dp-card">
-      <div class="dp-card-header">🏢 Company & Contact</div>
-      ${lead.address || lead.phone || lead.email || lead.company_website ? `
-      <table class="dp-table">
-        ${lead.address ? `<tr><td>Address</td><td>${esc(lead.address)}</td></tr>` : ''}
-        ${lead.phone   ? `<tr><td>Phone</td><td><a href="tel:${esc(lead.phone)}">${esc(lead.phone)}</a></td></tr>` : ''}
-        ${lead.email   ? `<tr><td>Email</td><td><a href="mailto:${esc(lead.email)}">${esc(lead.email)}</a></td></tr>` : ''}
-        ${lead.company_website ? `<tr><td>Website</td><td><a href="${esc(lead.company_website)}" target="_blank" rel="noopener">${esc(lead.company_website)}</a></td></tr>` : ''}
-      </table>` : '<div class="dp-empty-note">Contact data pending — FOIA enrichment in queue for TX/TN filings</div>'}
-    </div>
+    ${contactCardHTML}
 
     <!-- ENTITY MATCHES -->
     <div class="dp-card">
@@ -289,10 +312,83 @@ function buildPanelHTML(lead) {
   </div>
 
   <div class="dp-actions">
-    <button class="dp-action-primary" onclick="exportSingleLead('${esc(lead.id)}')">↓ Export This Lead</button>
+    ${primaryActionHTML}
     <button class="dp-action-secondary" onclick="closePanel()">Close</button>
   </div>`;
 }
+
+const TIER_PRICES = {
+  priority: { price: 99.00, cents: 9900, label: 'Priority' },
+  hot: { price: 79.00, cents: 7900, label: 'Hot' },
+  monitor: { price: 49.00, cents: 4900, label: 'Monitor' },
+  low: { price: 29.00, cents: 2900, label: 'Low' }
+};
+
+window.unlockLead = async function(leadId) {
+  const btn = document.querySelector(`.sx-paywall-btn`) || document.querySelector(`.dp-action-primary`);
+  const originalText = btn ? btn.textContent : 'Unlock Lead';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'SECURE CHECKOUT CONFIGURED...';
+  }
+  
+  try {
+    const response = await fetch(`/api/leads/${leadId}/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (!response.ok) {
+      const errData = await response.json();
+      throw new Error(errData.error || `HTTP ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.demo_unlock) {
+      showToast('Demo Mode: Lead unlocked successfully!');
+      const unlockRes = await fetch(`/api/leads/${leadId}/unlock`);
+      if (!unlockRes.ok) throw new Error('Failed to fetch unlocked lead');
+      const unmaskedLead = await unlockRes.json();
+      
+      const idxAll = state.allLeads.findIndex(l => l.id === leadId);
+      if (idxAll !== -1) {
+        state.allLeads[idxAll] = unmaskedLead;
+      }
+      
+      const idxFiltered = state.filtered.findIndex(l => l.id === leadId);
+      if (idxFiltered !== -1) {
+        state.filtered[idxFiltered] = unmaskedLead;
+      }
+      
+      const tableRow = dom.tbody.querySelector(`tr[data-idx="${idxFiltered}"]`);
+      if (tableRow) {
+        const companyNameEl = tableRow.querySelector('.sx-company-name');
+        if (companyNameEl) {
+          companyNameEl.textContent = unmaskedLead.company_name;
+        }
+        const companyLocEl = tableRow.querySelector('.sx-company-loc');
+        if (companyLocEl) {
+          const city = unmaskedLead.city || '';
+          const st = unmaskedLead.state || '';
+          companyLocEl.textContent = `${city}${city && st ? ', ' : ''}${st}`;
+        }
+      }
+      
+      openPanel(unmaskedLead);
+    } else if (data.checkout_url) {
+      showToast('Redirecting to secure Stripe Checkout...');
+      window.location.href = data.checkout_url;
+    }
+  } catch (e) {
+    console.error('Unlock error:', e);
+    showToast(`Unlock failed: ${e.message}`);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+};
 
 // ── Export single lead ────────────────────────────────────────────────────────
 window.exportSingleLead = function(id) {
@@ -375,6 +471,29 @@ function startPolling() {
 async function init() {
   bindControls();
   try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session_id');
+    const leadId = urlParams.get('lead_id');
+    
+    let purchaseVerified = false;
+    if (sessionId && leadId) {
+      showToast('Verifying secure payment transaction...');
+      try {
+        const verifyRes = await fetch(`/api/purchase/verify?session_id=${sessionId}&lead_id=${leadId}`);
+        if (verifyRes.ok) {
+          const verifyData = await verifyRes.json();
+          if (verifyData.status === 'completed' || verifyData.status === 'paid' || verifyData.status === 'success') {
+            showToast('Payment verified! Lead unlocked successfully.');
+            purchaseVerified = true;
+            const newUrl = window.location.origin + '/';
+            window.history.replaceState({ path: newUrl }, '', newUrl);
+          }
+        }
+      } catch (e) {
+        console.error('Verify error:', e);
+      }
+    }
+
     const statsRes = await fetch('/api/stats');
     if (statsRes.status===202) { showBanner('INITIALIZING INTELLIGENCE PIPELINE',0); startPolling(); return; }
     const stats = await statsRes.json();
@@ -382,7 +501,23 @@ async function init() {
       showBanner('STARTING PIPELINE',0);
       await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force_refresh:false})});
       startPolling();
-    } else { await loadLeads(); }
+    } else {
+      await loadLeads();
+      if (purchaseVerified && leadId) {
+        const lead = state.allLeads.find(l => l.id === leadId);
+        if (lead) {
+          const idxFiltered = state.filtered.findIndex(l => l.id === leadId);
+          if (idxFiltered !== -1) {
+            const row = dom.tbody.querySelector(`tr[data-idx="${idxFiltered}"]`);
+            if (row) {
+              row.classList.add('row-open');
+              row.setAttribute('aria-expanded', 'true');
+            }
+          }
+          openPanel(lead);
+        }
+      }
+    }
   } catch(e) { console.error('Init error',e); showBanner('CONNECTION ERROR — IS THE SERVER RUNNING?',0); }
 }
 

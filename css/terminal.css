@@ -25,9 +25,9 @@
   --black-80:  rgba(0, 0, 0, .8);
   --gray-80:   rgba(37, 38, 40, .8);
 
-  /* Page surface — dark charcoal grey, not pure black */
-  --surface:   #131416;
-  --surface-2: #1a1c1f;
+  /* Page surface — deep blue/gray, Tomcat Capex theme */
+  --surface:   #1a1d24;
+  --surface-2: #242836;
 }
 
 /* ── Reset ── */
@@ -66,7 +66,7 @@ body {
 }
 
 .sx-nav.scrolled {
-  background: rgba(19, 20, 22, 0.96);
+  background: rgba(26, 29, 36, 0.96);
   border-bottom-color: var(--white-10);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -187,8 +187,8 @@ body {
     rgba(0,0,0,0.22)   0%,    /* near-transparent at top — image fully visible */
     rgba(0,0,0,0.12)   30%,   /* lightest — maximum cinematic image impact */
     rgba(0,0,0,0.45)   65%,   /* building toward legible text zone */
-    rgba(19,20,22,0.82) 85%,  /* blending with --surface colour */
-    rgba(19,20,22,1)   100%   /* fully --surface at the bottom edge = seamless join */
+    rgba(26,29,36,0.82) 85%,  /* blending with --surface colour */
+    rgba(26,29,36,1)   100%   /* fully --surface at the bottom edge = seamless join */
   );
 }
 
@@ -982,7 +982,53 @@ tbody tr.breakdown-row { display: none !important; }
   tbody tr.data-row td:last-child  { padding-right: 24px; }
   .sx-breakdown   { grid-template-columns: 1fr; }
   tbody tr.breakdown-row td { padding: 24px; }
-  .sx-btn-actions { margin-left: 0; width: 100%; }
+  
+  /* Responsive Filters Stack */
+  .sx-controls {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 16px !important;
+  }
+  .sx-control-group {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    width: 100% !important;
+  }
+  .sx-select, .sx-input, .sx-slider-group {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .sx-slider {
+    flex: 1;
+    width: auto !important;
+  }
+  .sx-btn-actions {
+    margin-left: 0 !important;
+    width: 100% !important;
+    display: flex !important;
+    gap: 12px !important;
+  }
+  .sx-btn-actions .sx-btn {
+    flex: 1 !important;
+    justify-content: center !important;
+  }
+  
+  /* Horizontal Table Scroll */
+  .sx-table-container {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  #leads-table {
+    min-width: 1000px !important;
+  }
+  
+  /* Full screen Detail Panel on Mobile */
+  .detail-panel {
+    width: 100% !important;
+    max-width: 100vw !important;
+  }
+  
   .sx-hero-title  { font-size: 2.5rem; }
   thead th { top: 56px; }
 }
@@ -1254,3 +1300,81 @@ tbody tr.breakdown-row { display: none !important; }
   transition: border-color 0.15s, color 0.15s;
 }
 .dp-action-secondary:hover { border-color: #374151; color: #374151; }
+
+/* Glassmorphic Paywall Card */
+.sx-paywall-card {
+  margin: 20px;
+  padding: 24px;
+  background: rgba(30, 35, 48, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(240, 240, 250, 0.15);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.sx-paywall-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.25), transparent);
+}
+
+.sx-paywall-icon {
+  font-size: 2rem;
+  margin-bottom: 12px;
+}
+
+.sx-paywall-title {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--white-100);
+  margin-bottom: 8px;
+}
+
+.sx-paywall-price {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--white-100);
+  margin-bottom: 12px;
+  letter-spacing: 0.04em;
+}
+
+.sx-paywall-desc {
+  font-size: 0.8125rem;
+  color: var(--white-70);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.sx-paywall-btn {
+  width: 100%;
+  padding: 14px 20px;
+  background: #ffffff;
+  color: #1a1d24;
+  border: none;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.15);
+}
+
+.sx-paywall-btn:hover {
+  background: rgba(255, 255, 255, 0.9);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(255, 255, 255, 0.25);
+}
+
+.sx-paywall-btn:active {
+  transform: translateY(0);
+}
