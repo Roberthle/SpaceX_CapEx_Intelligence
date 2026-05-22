@@ -517,6 +517,15 @@ table {
   table-layout: fixed;
 }
 
+#leads-table {
+  width: 1315px;
+}
+@media (min-width: 1350px) {
+  #leads-table {
+    width: 100%;
+  }
+}
+
 thead th {
   padding: 14px 16px 14px 0;
   text-align: left;
@@ -1020,7 +1029,8 @@ tbody tr.breakdown-row { display: none !important; }
     -webkit-overflow-scrolling: touch !important;
   }
   #leads-table {
-    min-width: 1000px !important;
+    width: 1315px !important;
+    min-width: 1315px !important;
   }
   
   /* Full screen Detail Panel on Mobile */
