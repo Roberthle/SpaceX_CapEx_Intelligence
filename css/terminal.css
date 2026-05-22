@@ -163,7 +163,7 @@ body {
 .sx-hero-bg {
   position: absolute;
   inset: 0;
-  background-image: url('../hero.png');
+  background-image: url('../hero.png?v=2');
   background-size: cover;
   background-position: center 30%;
   background-repeat: no-repeat;
