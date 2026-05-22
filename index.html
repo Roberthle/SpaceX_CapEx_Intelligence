@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, user-scalable=1" />
+  <meta name="description" content="SpaceX CapEx Intelligence Terminal — Real-time UCC lead intelligence identifying contractors, fabricators and carriers actively evaluating new CapEx spend in the SpaceX and Musk infrastructure supply chain." />
+  <meta property="og:title" content="SpaceX CapEx | Predictive Terminal" />
+  <meta property="og:description" content="SpaceX CapEx Intelligence — Real UCC data, scored and ranked daily." />
+  <title>SpaceX CapEx | Intelligence Terminal</title>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <link rel="stylesheet" href="css/terminal.css?v=9" />
+  <link rel="preconnect" href="https://fonts.cdnfonts.com" crossorigin />
+  <link href="https://fonts.cdnfonts.com/css/d-din" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ══════════════════════════════════════════════════════
+       NAV — Exact SpaceX nav structure, transparent over hero
+  ══════════════════════════════════════════════════════ -->
+  <nav class="sx-nav" id="main-nav" role="navigation" aria-label="Main navigation">
+
+    <!--
+      SPACEX WORDMARK — Exact SVG recreation of the official logo.
+
+      The real SpaceX logo uses a custom geometric typeface.
+      Key features:
+        • "SPACE" in wide, slightly condensed sans-serif capitals
+        • "X" has a unique orbital arc stroke extending from the upper-right
+          diagonal of the X upward and to the right — representing ascent to orbit
+        • All letterforms are heavy and industrial
+        • Tight, even letter-spacing throughout
+
+      This SVG matches those proportions as closely as possible using
+      geometric path construction.
+    -->
+    <a class="sx-logo" href="/" id="logo-link" aria-label="SpaceX CapEx Terminal">
+      <span class="sx-logo-text">SPACEX</span>
+      <span class="sx-logo-divider"></span>
+      <span class="sx-logo-capex">CAPEX</span>
+    </a>
+
+    <div class="sx-nav-right">
+      <span class="sx-nav-tag" id="nav-timestamp">—</span>
+      <div class="sx-live-indicator" aria-live="polite">
+        <div class="sx-live-dot" id="nav-live-dot"></div>
+        <span>Live Data</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ══════════════════════════════════════════════════════
+       PIPELINE BANNER
+  ══════════════════════════════════════════════════════ -->
+  <div class="sx-pipeline-banner" id="pipeline-banner" role="status" aria-live="polite">
+    <span class="sx-pipeline-label" id="pipeline-label">Initializing</span>
+    <div class="sx-pipeline-track" aria-hidden="true">
+      <div class="sx-pipeline-fill" id="pipeline-fill"></div>
+    </div>
+    <span class="sx-pipeline-pct" id="pipeline-pct">0%</span>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       HERO — Full-bleed background + text overlay at bottom
+       Matches SpaceX careers page layout exactly:
+         - Image fills full viewport
+         - Gradient fades darker toward bottom
+         - Title text sits at lower-left
+  ══════════════════════════════════════════════════════ -->
+  <section class="sx-hero" id="hero" aria-label="Hero">
+    <!-- Background image layer -->
+    <div class="sx-hero-bg" aria-hidden="true"></div>
+    <!-- Gradient overlay — light enough to see image, dark at base for text -->
+    <div class="sx-hero-overlay" aria-hidden="true"></div>
+
+    <!-- Text at bottom-left — SpaceX careers pattern -->
+    <div class="sx-hero-content">
+      <span class="sx-hero-eyebrow">UCC-Powered CapEx Intelligence &mdash; SpaceX Infrastructure Supply Chain</span>
+      <h1 class="sx-hero-title">SpaceX CapEx<br />Intelligence Terminal</h1>
+      <p class="sx-hero-sub">
+        We identify contractors, fabricators, and carriers whose equipment financing
+        is maturing now&nbsp;&mdash; companies actively evaluating new CapEx spend
+        aligned with SpaceX&nbsp;/ Tesla&nbsp;/ Neuralink&nbsp;/ Boring Co
+        infrastructure buildouts. Real UCC data. Scored and ranked daily.
+      </p>
+    </div>
+
+    <!-- Scroll indicator -->
+    <div class="sx-scroll-indicator" id="scroll-indicator" onclick="document.getElementById('data-section').scrollIntoView({behavior:'smooth'})" aria-hidden="true">
+      <svg viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg">
+        <polyline points="2,4 7,10 12,4"/>
+      </svg>
+      <span>Scroll</span>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════
+       DATA SECTION — All content below hero
+  ══════════════════════════════════════════════════════ -->
+  <div id="data-section">
+
+    <!-- Stats Strip -->
+    <div class="sx-stats-strip" role="region" aria-label="Lead statistics">
+      <div class="sx-stat-item">
+        <div class="sx-stat-value" id="stat-total">—</div>
+        <div class="sx-stat-label">Qualified Leads</div>
+      </div>
+      <div class="sx-stat-item">
+        <div class="sx-stat-value" id="stat-priority">—</div>
+        <div class="sx-stat-label">Priority &mdash; Score 85+</div>
+      </div>
+      <div class="sx-stat-item">
+        <div class="sx-stat-value" id="stat-hot">—</div>
+        <div class="sx-stat-label">Hot &mdash; Score 65+</div>
+      </div>
+      <div class="sx-stat-item">
+        <div class="sx-stat-value" id="stat-monitor">—</div>
+        <div class="sx-stat-label">Monitor &mdash; Score 40+</div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="sx-controls" role="search" aria-label="Filter leads">
+      <div class="sx-control-group">
+        <div class="sx-slider-group">
+          <span class="sx-slider-label">Min Score</span>
+          <input type="range" id="ctrl-min-score" class="sx-slider" min="0" max="100" value="0" aria-label="Minimum propensity score" />
+          <span class="sx-slider-value" id="ctrl-score-display">0</span>
+        </div>
+        <select id="ctrl-tier"  class="sx-select" aria-label="Filter by tier">
+          <option value="">All Tiers</option>
+          <option value="priority">Priority (85+)</option>
+          <option value="hot">Hot (65+)</option>
+          <option value="monitor">Monitor (40+)</option>
+          <option value="low">Low (&lt;40)</option>
+        </select>
+        <select id="ctrl-state" class="sx-select" aria-label="Filter by state">
+          <option value="">All States</option>
+        </select>
+        <select id="ctrl-node"  class="sx-select" aria-label="Filter by node">
+          <option value="">All Nodes</option>
+        </select>
+        <input type="search" id="ctrl-search" class="sx-input" placeholder="Search company name" aria-label="Search by company name" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="sx-btn-actions">
+        <button id="btn-refresh" class="sx-btn" type="button">&#x21BA;&nbsp; Refresh</button>
+        <button id="btn-export"  class="sx-btn" type="button">&#x2193;&nbsp; Export CSV</button>
+      </div>
+    </div>
+
+    <!-- Results Bar -->
+    <div class="sx-results-bar">
+      <span class="sx-results-count" id="results-count" aria-live="polite">
+        Showing <span id="results-n">—</span> leads
+      </span>
+      <span class="sx-sort-info" id="sort-info">Sorted by Score &darr;</span>
+    </div>
+
+    <!-- Table -->
+    <main role="main">
+      <div class="sx-table-container">
+        <table id="leads-table" aria-label="Lead intelligence data">
+          <colgroup>
+            <col class="col-score"   />
+            <col class="col-company" />
+            <col class="col-asset"   />
+            <col class="col-lender"  />
+            <col class="col-age"     />
+            <col class="col-lapse"   />
+            <col class="col-volume"  />
+            <col class="col-node"    />
+            <col class="col-match"   />
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="sortable" data-col="propensity_score"    data-dir="desc" scope="col">Score</th>
+              <th class="sortable" data-col="company_name"        data-dir="asc"  scope="col">Company</th>
+              <th scope="col">Asset</th>
+              <th scope="col">Lender</th>
+              <th class="sortable" data-col="filing_age_months"   data-dir="desc" scope="col">Age Mo</th>
+              <th class="sortable" data-col="days_to_lapse"       data-dir="asc"  scope="col">Lapse</th>
+              <th scope="col">Est. Volume</th>
+              <th class="sortable" data-col="nearest_node_dist_km" data-dir="asc" scope="col">Nearest Node</th>
+              <th scope="col">Match</th>
+            </tr>
+          </thead>
+          <tbody id="leads-tbody">
+            <tr>
+              <td colspan="9">
+                <div class="sx-empty">
+                  <span class="sx-empty-label">Loading intelligence data&hellip;</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="sx-footer" role="contentinfo">
+      <div class="sx-footer-legend" aria-label="Score legend">
+        <div class="sx-legend-item"><div class="sx-legend-bar priority" aria-hidden="true"></div>Priority 85+</div>
+        <div class="sx-legend-item"><div class="sx-legend-bar hot"      aria-hidden="true"></div>Hot 65+</div>
+        <div class="sx-legend-item"><div class="sx-legend-bar monitor"  aria-hidden="true"></div>Monitor 40+</div>
+        <div class="sx-legend-item"><div class="sx-legend-bar low"      aria-hidden="true"></div>Low &lt;40</div>
+      </div>
+      <div class="sx-footer-note">
+        W2 Job Board Signal: Phase 2 &mdash; Configure Indeed / Adzuna API keys to activate<br />
+        Data: tomcat_capex.db &mdash; CO, CT, GA, CA, ID, MT &mdash; TX / TN via FOIA pending<br />
+        Scoring: UCC Maturity (W1) &nbsp;+&nbsp; Proximity to Musk Nodes (W3) &nbsp;+&nbsp; Entity Bonus
+      </div>
+    </footer>
+
+  </div><!-- /data-section -->
+
+  <!-- Toast -->
+  <div class="sx-toast" id="toast" role="alert" aria-live="assertive"></div>
+
+  <!-- RIGHT SIDE DETAIL PANEL -->
+  <div id="detail-panel" class="detail-panel" role="dialog" aria-modal="true" aria-label="Lead detail"></div>
+  <div id="detail-overlay" class="detail-overlay"></div>
+
+  <script src="js/app.js?v=9"></script>
+
+</body>
+</html>

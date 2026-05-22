@@ -1,0 +1,32 @@
+# Python bytecode / caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Environments
+env/
+venv/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Databases (in case anyone copies it here)
+*.db
+*.sqlite
+*.sqlite3
+
+# Local/temporary files
+tmp/
+temp/
