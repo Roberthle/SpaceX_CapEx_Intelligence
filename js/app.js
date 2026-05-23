@@ -74,6 +74,123 @@ function openPanel(lead) {
   dom.panel.classList.add('open');
   dom.overlay.style.display = 'block';
   document.body.style.overflow = 'hidden';
+  
+  if (!lead.locked) {
+    fetchJobSignals(lead);
+  }
+}
+
+async function fetchJobSignals(lead) {
+  const leadId = lead.id;
+  const statusEl = document.getElementById('dp-job-board-status');
+  const barEl = document.getElementById('dp-job-board-bar');
+  const containerEl = document.getElementById('dp-jobs-card-container');
+  
+  if (!statusEl || !containerEl) return;
+  
+  // Set initial scanning state animation
+  let pct = 0;
+  const progressInterval = setInterval(() => {
+    if (state.openLeadId !== leadId) {
+      clearInterval(progressInterval);
+      return;
+    }
+    if (pct < 85) {
+      pct += Math.floor(Math.random() * 8) + 4;
+      if (barEl) barEl.style.width = Math.min(85, pct) + '%';
+    }
+  }, 150);
+  
+  try {
+    const response = await fetch(`/api/leads/${leadId}/jobs`);
+    clearInterval(progressInterval);
+    
+    // Check if the user is still viewing the same lead
+    if (state.openLeadId !== leadId) return;
+    
+    if (response.status === 402) {
+      if (barEl) barEl.style.width = '0%';
+      statusEl.style.color = '#ff3b3b';
+      statusEl.textContent = '🔒 LOCKED';
+      containerEl.innerHTML = '';
+      return;
+    }
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const jobs = await response.json();
+    
+    if (state.openLeadId !== leadId) return;
+    
+    if (barEl) barEl.style.width = '100%';
+    
+    const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    
+    if (Array.isArray(jobs) && jobs.length > 0) {
+      statusEl.style.color = '#34c759';
+      statusEl.style.fontWeight = '800';
+      statusEl.textContent = '⚡ ACTIVE HIRING';
+      
+      containerEl.innerHTML = `
+        <div class="dp-card" style="background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(8px);">
+          <div class="dp-card-header" style="color: #111827; border-bottom: 1px solid rgba(0,0,0,0.06); padding-bottom: 10px; margin-bottom: 10px;">
+            🎯 Career & Job Signals
+          </div>
+          <div style="padding: 0 20px 16px; display: flex; flex-direction: column; gap: 12px;">
+            ${jobs.map(job => `
+              <div class="dp-job-item" style="border-bottom: 1px dashed rgba(0,0,0,0.08); padding-bottom: 10px; margin-bottom: 2px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                  <div style="font-weight: 700; color: #111827; font-size: 0.875rem; line-height: 1.3;">
+                    ${esc(job.job_title)}
+                  </div>
+                  <span class="dp-badge" style="background: rgba(52, 199, 89, 0.15); color: #248a3d; border: 1px solid rgba(52, 199, 89, 0.3); font-size: 0.625rem; padding: 2px 6px; border-radius: 4px; font-weight: bold; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.05em;">
+                    ${esc(job.category)}
+                  </span>
+                </div>
+                ${job.snippet ? `<div style="font-size: 0.75rem; color: #6b7280; line-height: 1.4; margin: 6px 0 8px;">${esc(job.snippet)}</div>` : ''}
+                <div style="font-size: 0.75rem; margin-top: 4px;">
+                  <a href="${esc(job.source_url)}" target="_blank" rel="noopener" style="color: #0070f3; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                    Apply Outbound ↗
+                  </a>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    } else {
+      statusEl.style.color = '#8e8e93';
+      statusEl.textContent = '⚪ NO ACTIVE JOBS';
+      
+      containerEl.innerHTML = `
+        <div class="dp-card">
+          <div class="dp-card-header">🎯 Career & Job Signals</div>
+          <div style="padding: 14px 20px 18px; font-size: 0.8125rem; color: #6b7280; display: flex; align-items: center; gap: 8px; font-weight: 500;">
+            <span style="font-size: 1.1rem;">⚪</span> No active blue-collar jobs detected in target categories.
+          </div>
+        </div>
+      `;
+    }
+  } catch (e) {
+    clearInterval(progressInterval);
+    console.error('Job scan error:', e);
+    if (state.openLeadId !== leadId) return;
+    
+    if (barEl) barEl.style.width = '0%';
+    statusEl.style.color = '#ff3b3b';
+    statusEl.textContent = '⚠️ SCAN FAILED';
+    
+    containerEl.innerHTML = `
+      <div class="dp-card">
+        <div class="dp-card-header">🎯 Career & Job Signals</div>
+        <div style="padding: 14px 20px 18px; font-size: 0.8125rem; color: #ff3b3b; display: flex; align-items: center; gap: 8px; font-weight: 500;">
+          <span style="font-size: 1.1rem;">⚠️</span> Failed to scan active job boards.
+        </div>
+      </div>
+    `;
+  }
 }
 
 window.closePanel = function () {
@@ -250,10 +367,20 @@ function buildPanelHTML(lead) {
             <div class="dp-mini-bar-track"><div class="dp-mini-bar-fill" style="width:${Math.min(100,(lead.score_w1||0)/33.3*100).toFixed(0)}%"></div></div>
             <span class="dp-score-row-val">${(lead.score_w1||0).toFixed(1)}</span>
           </div>
+          ${lead.locked ? `
           <div class="dp-score-row dp-score-row--pending">
             <span class="dp-score-row-label">Job Board</span>
-            <span class="dp-score-row-pending">Phase 2 — API key needed</span>
+            <span class="dp-score-row-pending">🔒 Unlock to inspect hiring</span>
           </div>
+          ` : `
+          <div class="dp-score-row" id="dp-score-row-jobboard" style="grid-template-columns: 100px 1fr auto;">
+            <span class="dp-score-row-label">Job Board</span>
+            <div id="dp-job-board-track" class="dp-mini-bar-track">
+              <div id="dp-job-board-bar" class="dp-mini-bar-fill" style="width: 0%; background: #34c759;"></div>
+            </div>
+            <span class="dp-score-row-val" id="dp-job-board-status" style="font-size: 0.6875rem; color: #6b7280; font-weight: bold; width: auto; min-width: 80px; text-align: right;">🛰️ SCANNING...</span>
+          </div>
+          `}
           <div class="dp-score-row">
             <span class="dp-score-row-label">Node Proximity</span>
             <div class="dp-mini-bar-track"><div class="dp-mini-bar-fill" style="width:${Math.min(100,(lead.score_w3||0)/33.3*100).toFixed(0)}%"></div></div>
@@ -311,6 +438,9 @@ function buildPanelHTML(lead) {
     </div>
 
     ${contactCardHTML}
+
+    <!-- DYNAMIC JOB BOARD CARD -->
+    <div id="dp-jobs-card-container"></div>
 
     <!-- ENTITY MATCHES -->
     <div class="dp-card">

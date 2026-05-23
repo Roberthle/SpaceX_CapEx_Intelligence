@@ -1225,7 +1225,7 @@ tbody tr.breakdown-row { display: none !important; }
 .dp-mini-bar-fill { position: absolute; left:0; top:0; height:100%; background: #374151; border-radius:2px; transition: width 0.8s ease; }
 .dp-score-row-val { font-size: 0.8125rem; font-weight: 700; color: #374151; text-align: right; font-variant-numeric: tabular-nums; }
 .dp-score-row--pending { opacity: 0.85; grid-template-columns: 100px 1fr; }
-.dp-score-row-pending { font-size: 0.5625rem; letter-spacing: 0.18em; text-transform: uppercase; color: #1f2937; }
+.dp-score-row-pending { font-size: 0.625rem; letter-spacing: 0.18em; text-transform: uppercase; color: #1f2937; }
 
 /* section cards */
 .dp-card {

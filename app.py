@@ -19,9 +19,14 @@ import os
 import sqlite3
 import threading
 import time
+import re
+import random
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlparse, parse_qs, unquote
 
+import requests
+from bs4 import BeautifulSoup
 import stripe
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -71,6 +76,154 @@ def init_db():
     """)
     conn.commit()
     conn.close()
+
+def clean_company_name(name: str) -> str:
+    """Cleans common corporate suffixes, punctuation, and extra spaces from the company name."""
+    name_clean = name.lower()
+    suffixes = [
+        r'\bllc\b', r'\bl\.l\.c\.\b', r'\binc\b', r'\binc\.\b', 
+        r'\bcorp\b', r'\bcorporation\b', r'\bco\b', r'\bco\.\b', 
+        r'\bltd\b', r'\blimited\b', r'\bpc\b', r'\bp\.c\.\b',
+        r'\bgroup\b', r'\bsolutions\b', r'\bservices\b'
+    ]
+    for suffix in suffixes:
+        name_clean = re.sub(suffix, '', name_clean)
+    name_clean = re.sub(r'[^\w\s]', ' ', name_clean)
+    return " ".join(name_clean.split())
+
+def extract_real_url(url: str) -> str:
+    """Decodes DuckDuckGo search redirect URLs to extract the actual target job listing URL."""
+    if not url:
+        return ""
+    if "uddg=" in url:
+        try:
+            parsed = urlparse(url)
+            queries = parse_qs(parsed.query)
+            if "uddg" in queries:
+                return unquote(queries["uddg"][0])
+        except Exception:
+            pass
+    if url.startswith("//"):
+        return "https:" + url
+    return url
+
+def get_job_signals(company_name: str) -> list:
+    """Searches for active job postings for a given company name using DuckDuckGo X-Ray."""
+    if not company_name:
+        return []
+    
+    cleaned_company = clean_company_name(company_name)
+    words = [w for w in cleaned_company.split() if len(w) > 2 and w not in ["and", "the", "for", "with", "our"]]
+    if not words:
+        words = cleaned_company.split()
+        
+    query = f'"{cleaned_company}" (welder OR welding OR fabricator OR fabrication OR CNC OR machinist OR "heavy machinery" OR "machine operator" OR operator) (hiring OR jobs OR career OR careers OR job)'
+    url = "https://html.duckduckgo.com/html/"
+    data = {'q': query}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+    }
+    
+    response_text = ""
+    for attempt in range(3):
+        try:
+            response = requests.post(url, data=data, headers=headers, timeout=5)
+            response.raise_for_status()
+            response_text = response.text
+            break
+        except Exception:
+            if attempt == 2:
+                return []
+            time.sleep(random.uniform(0.5, 1.5))
+            
+    if not response_text:
+        return []
+    
+    soup = BeautifulSoup(response_text, 'html.parser')
+    raw_results = []
+    containers = soup.select(".result")
+    
+    if containers:
+        for r in containers:
+            title_elem = r.select_one(".result__a") or r.select_one(".result__title")
+            snippet_elem = r.select_one(".result__snippet")
+            if title_elem and title_elem.has_attr("href"):
+                raw_results.append({
+                    "title": title_elem.get_text(strip=True),
+                    "url": title_elem["href"],
+                    "snippet": snippet_elem.get_text(strip=True) if snippet_elem else ""
+                })
+            
+    CATEGORIES = {
+        "Welder": ["welder", "welding", "mig", "tig", "stick", "flux", "gmaw", "smaw", "fitter-welder"],
+        "Fabricator": ["fabricator", "fabrication", "fitter", "fit-up", "structural fabricator", "metal fabricator"],
+        "CNC Machinist": ["cnc", "machinist", "lathe", "mill", "machining", "machinist operator", "cnc operator"],
+        "Heavy Machinery Operator": ["heavy machinery", "heavy equipment", "forklift", "crane", "loader", "excavator", "backhoe", "bulldozer", "machine operator", "machinery operator", "equipment operator", "rigging", "material handler", "forklift operator"]
+    }
+    
+    hiring_keywords = [
+        "hiring", "job", "jobs", "career", "careers", "vacancy", "employment", 
+        "apply", "salary", "wages", "shift", "opening", "openings", "recruiting", 
+        "recruit", "work", "position", "positions"
+    ]
+    
+    job_boards = [
+        "indeed.com", "ziprecruiter.com", "linkedin.com/jobs", "simplyhired.com", 
+        "glassdoor.com", "jora.com", "talent.com", "careerbuilder.com", 
+        "monster.com", "snagajob.com", "jooble.org", "lever.co", "greenhouse.io", 
+        "ashbyhq.com", "workdayjobs.com", "bamboohr.com", "paycomonline.net", 
+        "paylocity.com", "recruitee.com"
+    ]
+    
+    signals = []
+    seen_urls = set()
+    
+    for res in raw_results:
+        title = res["title"]
+        snippet = res["snippet"]
+        raw_url = res["url"]
+        
+        real_url = extract_real_url(raw_url)
+        if not real_url or real_url in seen_urls:
+            continue
+            
+        combined_text = f"{title} {snippet} {real_url}".lower()
+        name_match = (cleaned_company in combined_text)
+        if not name_match:
+            matching_words = sum(1 for w in words if w in combined_text)
+            required_matches = min(2, len(words))
+            if matching_words >= required_matches:
+                name_match = True
+                
+        if not name_match:
+            continue
+            
+        is_job_board = any(board in real_url.lower() for board in job_boards)
+        has_hiring_keyword = any(k in combined_text for k in hiring_keywords)
+        if not (is_job_board or has_hiring_keyword):
+            continue
+            
+        matched_category = None
+        for category, keywords in CATEGORIES.items():
+            if any(keyword in combined_text for keyword in keywords):
+                matched_category = category
+                break
+                
+        if not matched_category:
+            continue
+            
+        seen_urls.add(real_url)
+        signals.append({
+            "job_title": title,
+            "category": matched_category,
+            "source_url": real_url,
+            "snippet": snippet[:140] + "..." if len(snippet) > 140 else snippet
+        })
+        
+    return signals
+
 
 init_db()
 
@@ -421,6 +574,41 @@ def api_stats():
             "w2_active": result.get("w2_active", False),
         }
     )
+
+
+@app.route("/api/leads/<lead_id>/jobs")
+def api_lead_jobs(lead_id):
+    """
+    Scrapes and returns active job signals for a lead.
+    Only accessible if the lead has been purchased/unlocked.
+    """
+    if not _is_purchased(lead_id):
+        return jsonify({"error": "Lead is locked. Purchase to unlock hiring signal intelligence.", "locked": True}), 402
+
+    # Get the unmasked lead info from pipeline state/cache
+    with _pipeline_lock:
+        result = _pipeline_state.get("result")
+    if result is None:
+        result = _load_cache()
+    
+    if not result:
+        return jsonify({"error": "Data not initialized"}), 500
+
+    leads = result.get("leads", [])
+    lead = next((l for l in leads if str(l.get("id")) == str(lead_id)), None)
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+
+    company_name = lead.get("company_name")
+    if not company_name:
+        return jsonify([])
+
+    try:
+        jobs = get_job_signals(company_name)
+        return jsonify(jobs)
+    except Exception as e:
+        logger.error(f"Error fetching jobs for {company_name}: {e}")
+        return jsonify({"error": "Failed to scan job signals", "details": str(e)}), 500
 
 
 # ── Stripe & Unlock Endpoints ──────────────────────────────────────────────────
