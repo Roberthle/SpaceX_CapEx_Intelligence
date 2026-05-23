@@ -57,6 +57,7 @@ const dom = {
   toast:        $('toast'),
   panel:        $('detail-panel'),
   overlay:      $('detail-overlay'),
+  liveIndicatorText: $('live-indicator-text'),
   btnPageFirst: $('btn-page-first'),
   btnPagePrev:  $('btn-page-prev'),
   btnPageNext:  $('btn-page-next'),
@@ -475,8 +476,24 @@ function startPolling() {
   pollStatus();
 }
 
+function startLiveClock() {
+  const updateClock = () => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const hh = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    dom.navTimestamp.textContent = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+  };
+  updateClock();
+  setInterval(updateClock, 1000);
+}
+
 // ── Data ──────────────────────────────────────────────────────────────────────
 async function init() {
+  startLiveClock();
   bindControls();
   try {
     const urlParams = new URLSearchParams(window.location.search);
@@ -539,7 +556,8 @@ async function loadLeads(forceRefresh=false) {
     animateCounter(dom.statHot,      data.hot_count||0);
     animateCounter(dom.statMonitor,  data.monitor_count||0);
     if (data.generated_at) {
-      dom.navTimestamp.textContent = new Date(data.generated_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+      const syncTime = new Date(data.generated_at).toLocaleString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+      dom.liveIndicatorText.innerHTML = `Live Data <span class="sx-sync-time">(Sync: ${syncTime})</span>`;
     }
     populateDropdowns();
     applyFiltersAndRender();
