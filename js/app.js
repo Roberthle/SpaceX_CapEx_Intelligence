@@ -27,6 +27,8 @@ const state = {
   pollTimer:  null,
   initialized: false,
   openLeadId: null,
+  currentPage: 1,
+  pageSize: 25,
 };
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -55,6 +57,12 @@ const dom = {
   toast:        $('toast'),
   panel:        $('detail-panel'),
   overlay:      $('detail-overlay'),
+  btnPageFirst: $('btn-page-first'),
+  btnPagePrev:  $('btn-page-prev'),
+  btnPageNext:  $('btn-page-next'),
+  btnPageLast:  $('btn-page-last'),
+  pageCurrent:  $('page-current'),
+  pageTotal:    $('page-total'),
 };
 
 // ── Right-side Detail Panel ───────────────────────────────────────────────────
@@ -361,7 +369,7 @@ window.unlockLead = async function(leadId) {
         state.filtered[idxFiltered] = unmaskedLead;
       }
       
-      const tableRow = dom.tbody.querySelector(`tr[data-idx="${idxFiltered}"]`);
+      const tableRow = dom.tbody.querySelector(`tr[data-id="${leadId}"]`);
       if (tableRow) {
         const companyNameEl = tableRow.querySelector('.sx-company-name');
         if (companyNameEl) {
@@ -506,13 +514,10 @@ async function init() {
       if (purchaseVerified && leadId) {
         const lead = state.allLeads.find(l => l.id === leadId);
         if (lead) {
-          const idxFiltered = state.filtered.findIndex(l => l.id === leadId);
-          if (idxFiltered !== -1) {
-            const row = dom.tbody.querySelector(`tr[data-idx="${idxFiltered}"]`);
-            if (row) {
-              row.classList.add('row-open');
-              row.setAttribute('aria-expanded', 'true');
-            }
+          const row = dom.tbody.querySelector(`tr[data-id="${leadId}"]`);
+          if (row) {
+            row.classList.add('row-open');
+            row.setAttribute('aria-expanded', 'true');
           }
           openPanel(lead);
         }
@@ -561,7 +566,7 @@ function getFilters() {
   };
 }
 
-function applyFiltersAndRender() {
+function applyFiltersAndRender(resetPage = true) {
   if (!state.initialized) return;
   const f = getFilters();
   let leads = state.allLeads;
@@ -577,7 +582,29 @@ function applyFiltersAndRender() {
   });
   state.filtered = leads;
   dom.resultN.textContent = leads.length.toLocaleString();
-  renderTable(leads);
+  
+  if (resetPage) {
+    state.currentPage = 1;
+  }
+  renderPagedTable();
+}
+
+function renderPagedTable() {
+  const totalPages = Math.max(1, Math.ceil(state.filtered.length / state.pageSize));
+  state.currentPage = Math.max(1, Math.min(state.currentPage, totalPages));
+  
+  const startIndex = (state.currentPage - 1) * state.pageSize;
+  const pagedLeads = state.filtered.slice(startIndex, startIndex + state.pageSize);
+  
+  renderTable(pagedLeads);
+  
+  dom.pageCurrent.textContent = state.currentPage;
+  dom.pageTotal.textContent = totalPages;
+  
+  dom.btnPageFirst.disabled = state.currentPage === 1;
+  dom.btnPagePrev.disabled = state.currentPage === 1;
+  dom.btnPageNext.disabled = state.currentPage === totalPages;
+  dom.btnPageLast.disabled = state.currentPage === totalPages;
 }
 
 // ── Table ─────────────────────────────────────────────────────────────────────
@@ -590,7 +617,7 @@ function renderTable(leads) {
     dom.tbody.innerHTML = `<tr><td colspan="9"><div class="sx-empty"><span class="sx-empty-label">No leads match current filters.</span></div></td></tr>`;
     return;
   }
-  dom.tbody.innerHTML = leads.map((lead, idx) => {
+  dom.tbody.innerHTML = leads.map((lead) => {
     const tier  = lead.score_tier||'low';
     const tc    = tierClass(tier);
     const score = (lead.propensity_score||0).toFixed(1);
@@ -606,7 +633,7 @@ function renderTable(leads) {
     const nodeDist=lead.nearest_node_dist_km!=null?lead.nearest_node_dist_km.toLocaleString()+' km':'';
     const matches=(lead.entity_matches||[]).map(m=>`<span class="sx-match-badge">${escHtml(truncate(m,18))}</span>`).join(' ');
 
-    return `<tr class="data-row" data-idx="${idx}" aria-expanded="false">
+    return `<tr class="data-row" data-id="${lead.id}" aria-expanded="false">
       <td>
         <div class="sx-score-wrap">
           <div class="sx-score-bar-track"><div class="sx-score-bar-fill ${tc}" style="width:0" data-pct="${score}"></div></div>
@@ -632,8 +659,8 @@ function renderTable(leads) {
   // Row click → open right panel
   dom.tbody.querySelectorAll('tr.data-row').forEach(row => {
     row.addEventListener('click', () => {
-      const idx = parseInt(row.dataset.idx, 10);
-      const lead = state.filtered[idx];
+      const leadId = row.dataset.id;
+      const lead = state.allLeads.find(l => l.id === leadId);
       dom.tbody.querySelectorAll('tr.data-row.row-open').forEach(r => {
         r.classList.remove('row-open'); r.setAttribute('aria-expanded','false');
       });
@@ -661,6 +688,19 @@ function bindSortHeaders() {
   if (defTh) defTh.classList.add('sort-desc');
 }
 
+function setupPaginationControls() {
+  dom.btnPageFirst.addEventListener('click', () => { if (state.currentPage > 1) { state.currentPage = 1; renderPagedTable(); } });
+  dom.btnPagePrev.addEventListener('click', () => { if (state.currentPage > 1) { state.currentPage--; renderPagedTable(); } });
+  dom.btnPageNext.addEventListener('click', () => {
+    const totalPages = Math.max(1, Math.ceil(state.filtered.length / state.pageSize));
+    if (state.currentPage < totalPages) { state.currentPage++; renderPagedTable(); }
+  });
+  dom.btnPageLast.addEventListener('click', () => {
+    const totalPages = Math.max(1, Math.ceil(state.filtered.length / state.pageSize));
+    if (state.currentPage < totalPages) { state.currentPage = totalPages; renderPagedTable(); }
+  });
+}
+
 // ── Controls ──────────────────────────────────────────────────────────────────
 function bindControls() {
   dom.ctrlScore.addEventListener('input', () => { dom.ctrlScoreVal.textContent=dom.ctrlScore.value; applyFiltersAndRender(); });
@@ -677,6 +717,7 @@ function bindControls() {
   dom.btnExport.addEventListener('click', exportCsv);
   if (dom.overlay) dom.overlay.addEventListener('click', closePanel);
   bindSortHeaders();
+  setupPaginationControls();
 }
 
 // ── CSV ───────────────────────────────────────────────────────────────────────
