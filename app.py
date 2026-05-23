@@ -63,6 +63,12 @@ def init_db():
             unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS subscribers (
+            email TEXT PRIMARY KEY,
+            subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -662,6 +668,30 @@ def stripe_webhook():
             conn.close()
 
     return jsonify({"status": "success"}), 200
+
+
+@app.route("/api/subscribe", methods=["POST"])
+def api_subscribe():
+    """Saves a user's business email in the subscribers database table."""
+    data = request.get_json() or {}
+    email = data.get("email", "").strip().lower()
+    
+    if not email or "@" not in email:
+        return jsonify({"error": "Invalid email address"}), 400
+        
+    try:
+        conn = sqlite3.connect("purchases.db")
+        conn.execute(
+            "INSERT OR IGNORE INTO subscribers (email) VALUES (?)",
+            [email]
+        )
+        conn.commit()
+        conn.close()
+        logger.info(f"New newsletter subscriber registered: {email}")
+        return jsonify({"success": True, "message": "Subscribed successfully!"}), 200
+    except Exception as e:
+        logger.error(f"Subscription database error: {e}")
+        return jsonify({"error": "Failed to subscribe"}), 500
 
 
 if __name__ == "__main__":

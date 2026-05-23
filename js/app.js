@@ -698,4 +698,54 @@ function exportCsv() {
   showToast(`Exported ${state.filtered.length.toLocaleString()} leads.`);
 }
 
+// ── Newsletter Subscription ───────────────────────────────────────────────────
+window.handleSubscribe = async function(event) {
+  event.preventDefault();
+  const form = event.target;
+  const emailInput = document.getElementById('subscribe-email');
+  const btn = document.getElementById('subscribe-btn');
+  const email = emailInput.value.trim();
+  
+  if (!email) return;
+  
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'TRANSMITTING…';
+  }
+  
+  try {
+    const response = await fetch('/api/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Subscription failed');
+    }
+    
+    showToast('🛰️ Daily Rocket Fuel: Subscribed successfully!');
+    emailInput.value = '';
+    if (btn) {
+      btn.textContent = 'SUCCESS ✓';
+      btn.classList.add('success');
+    }
+    setTimeout(() => {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Get Free Leads';
+        btn.classList.remove('success');
+      }
+    }, 4000);
+  } catch (e) {
+    console.error('Subscription error:', e);
+    showToast(`Subscription failed: ${e.message}`);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Get Free Leads';
+    }
+  }
+};
+
 document.addEventListener('DOMContentLoaded', init);
