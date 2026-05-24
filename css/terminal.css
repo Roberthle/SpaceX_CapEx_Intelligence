@@ -174,18 +174,18 @@ body {
 .sx-hero-bg {
   position: absolute;
   inset: 0;
-  background-image: url('../hero.png?v=2');
+  background-image: url('../hero.png?v=spacex_4k_flight');
   background-size: cover;
   background-position: center 30%;
   background-repeat: no-repeat;
   /* Slight Ken Burns drift */
-  animation: hero-drift 40s ease-in-out infinite alternate;
+  animation: hero-drift 32s ease-in-out infinite alternate;
   transform-origin: center;
 }
 
 @keyframes hero-drift {
-  from { transform: scale(1.0) translateX(0);    }
-  to   { transform: scale(1.04) translateX(-1%); }
+  from { transform: scale(1.0) translate(0, 0); }
+  to   { transform: scale(1.22) translate(-2%, -1.5%); }
 }
 
 /* Gradient overlay — light over the image, fades into --surface at the very bottom
