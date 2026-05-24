@@ -885,9 +885,10 @@ def api_subscribe():
         return jsonify({"error": "Failed to subscribe"}), 500
 
 
+# Auto-start pipeline on first launch (serves from cache if fresh)
+logger.info("⚡ SpaceX CapEx Intelligence starting...")
+_start_pipeline_thread(force_refresh=False)
+
 if __name__ == "__main__":
-    # Auto-start pipeline on first launch (serves from cache if fresh)
-    logger.info("⚡ SpaceX CapEx Intelligence starting...")
-    _start_pipeline_thread(force_refresh=False)
     port = int(os.environ.get("PORT", 5052))
     app.run(host="0.0.0.0", port=port, debug=False)
