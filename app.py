@@ -697,6 +697,8 @@ def api_lead_checkout(lead_id):
 
     # Otherwise, create a real Stripe Checkout Session
     host = request.host_url.rstrip("/")
+    company = lead.get("company_name", "Unknown Company")
+    masked_company = _mask_name(company)
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -706,7 +708,7 @@ def api_lead_checkout(lead_id):
                     "unit_amount": tier_info["price"],
                     "product_data": {
                         "name": f"SpaceX CapEx — {tier_info['label']} Lead",
-                        "description": f"Lead ID: {lead_id} | Propensity Score: {lead.get('propensity_score', 0):.1f}",
+                        "description": f"{masked_company} | Lead ID: {lead_id} | Propensity Score: {lead.get('propensity_score', 0):.1f}",
                     },
                 },
                 "quantity": 1,
@@ -717,6 +719,7 @@ def api_lead_checkout(lead_id):
             metadata={
                 "lead_id": lead_id,
                 "tier": tier_key,
+                "company": masked_company,
             }
         )
 
